@@ -1,17 +1,15 @@
 # termux-xfce-install
 
-> Installation d'un bureau XFCE dans Termux avec TigerVNC, avec au choix un client VNC classique ou une interface noVNC accessible dans un navigateur.
+> Installation d'un bureau XFCE dans Termux avec TigerVNC, au choix avec un client VNC classique ou via noVNC dans un navigateur.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Description
 
-Ce projet installe un environnement de bureau graphique **XFCE** dans **Termux** (Android), sans root ni `proot-distro`. Deux scripts sont proposés :
+Ce projet installe un environnement de bureau graphique **XFCE** dans **Termux** (Android), sans root ni `proot-distro`. Deux scripts sont disponibles :
 
-- `install.sh` : XFCE et TigerVNC, pour se connecter avec une application cliente VNC.
-- `install-novnc.sh` : XFCE, TigerVNC et noVNC, pour utiliser le bureau depuis le navigateur web du téléphone.
-
-Les deux scripts configurent le mot de passe VNC et les commandes de démarrage et d'arrêt correspondantes.
+- `install.sh` : XFCE et TigerVNC, pour un client VNC classique.
+- `install-novnc.sh` : XFCE, TigerVNC et noVNC, pour accéder au bureau via un navigateur sur le téléphone ou sur un appareil du même réseau local.
 
 ## Prérequis
 
@@ -23,9 +21,7 @@ Les deux scripts configurent le mot de passe VNC et les commandes de démarrage 
 
 Ouvre Termux et choisis **une** des méthodes ci-dessous.
 
-### XFCE avec une application VNC (TigerVNC)
-
-Télécharge puis exécute le script :
+### XFCE avec un client VNC classique
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nemesishighschool-cloud/termux-xfce-install/main/install.sh -o install.sh && bash install.sh
@@ -33,13 +29,11 @@ curl -fsSL https://raw.githubusercontent.com/nemesishighschool-cloud/termux-xfce
 
 ### XFCE accessible depuis un navigateur (noVNC)
 
-Télécharge puis exécute le second script :
-
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nemesishighschool-cloud/termux-xfce-install/main/install-novnc.sh -o install-novnc.sh && bash install-novnc.sh
 ```
 
-Le téléchargement dans un fichier avant l'exécution permet au script d'utiliser le terminal pour demander le mot de passe VNC.
+Le téléchargement dans un fichier avant l'exécution permet au script de demander le mot de passe VNC dans le terminal.
 
 ### Installation par clonage Git
 
@@ -54,32 +48,41 @@ bash install-novnc.sh
 
 ## Utilisation de noVNC
 
-Après l'installation noVNC :
+Démarre noVNC avec l'une de ces commandes :
 
 ```bash
+start-novnc
+# Alias équivalent :
 novnc-start
 ```
 
-Ouvre ensuite cette adresse dans le navigateur du téléphone :
+Ouvre ensuite l'interface dans le navigateur :
 
-```text
-http://127.0.0.1:6080/vnc.html
-```
+- Sur le téléphone : `http://127.0.0.1:6080/vnc.html`
+- Depuis un autre appareil connecté au même réseau local/Wi-Fi : `http://IP_DU_TELEPHONE:6080/vnc.html`
 
-Saisis le mot de passe VNC défini pendant l'installation. Les commandes disponibles sont :
+Le script affiche l'adresse IP locale si Termux peut la détecter automatiquement. Sinon, affiche-la avec `ip -o -4 addr show scope global`. Saisis le mot de passe VNC défini pendant l'installation.
 
 | Commande | Fonction |
 |----------|----------|
-| `novnc-start` | Démarre TigerVNC et l'interface noVNC |
-| `novnc-stop` | Arrête TigerVNC et noVNC |
-| `novnc-status` | Affiche l'état des services |
-| `novnc-log` | Affiche les logs noVNC en temps réel |
+| `start-novnc` / `novnc-start` | Démarre TigerVNC et noVNC |
+| `stop-novnc` / `novnc-stop` | Arrête TigerVNC et noVNC |
+| `status-novnc` / `novnc-status` | Affiche l'état des services |
+| `log-novnc` / `novnc-log` | Affiche les logs noVNC en temps réel |
 
-Par sécurité, noVNC écoute par défaut uniquement sur `127.0.0.1` : le bureau est accessible dans le navigateur du téléphone, mais pas depuis d'autres appareils du réseau. L'accès distant nécessite de modifier l'adresse d'écoute et doit être réservé à un réseau de confiance; le trafic HTTP/VNC n'est pas chiffré.
+Les commandes courtes sont installées dans `$PREFIX/bin`; les alias Bash correspondants sont également ajoutés à `~/.bashrc`. Pour les charger dans le shell en cours :
+
+```bash
+source ~/.bashrc
+```
+
+### Sécurité réseau
+
+noVNC écoute sur le réseau local afin que les autres appareils du même réseau puissent s'y connecter. Le serveur VNC lui-même reste lié à localhost et le mot de passe VNC est requis. Toutefois, l'interface web utilise HTTP non chiffré : utilise uniquement un réseau de confiance et **ne redirige pas le port 6080 vers Internet**. Les appareils doivent être sur le même réseau et le pare-feu/routeur ne doit pas bloquer le port.
 
 ## Utilisation avec un client VNC classique
 
-Avec `install.sh`, démarre le serveur et connecte un client VNC au port 5901 :
+Avec `install.sh`, démarre le serveur et connecte une application VNC au port 5901 :
 
 ```bash
 vncstart
@@ -90,9 +93,9 @@ Adresse locale : `127.0.0.1:5901`. Commandes de gestion : `vncstart`, `vncstop`,
 ## Dépannage
 
 - Si une commande n'est pas trouvée, ferme puis rouvre Termux, ou recharge ton shell avec `source ~/.bashrc`.
-- Les logs VNC sont dans `~/.vnc/`; utilise `vnclog` ou `novnc-log` selon le script installé.
+- Les logs VNC sont dans `~/.vnc/`; utilise `vnclog` ou `log-novnc` selon le script installé.
 - Le mot de passe VNC doit contenir entre 6 et 8 caractères. Pour le changer, lance `vncpasswd`, puis redémarre le serveur.
-- Si le port est déjà utilisé, arrête les services avec `vncstop` ou `novnc-stop`, puis relance-les.
+- Si le port est déjà utilisé, arrête les services avec `stop-novnc` ou `vncstop`, puis relance-les.
 
 ## Licence
 

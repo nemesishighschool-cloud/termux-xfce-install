@@ -2,7 +2,7 @@
 
 # ============================================================
 # Installation XFCE + TigerVNC + noVNC pour Termux
-# Accès au bureau XFCE depuis un navigateur web.
+# Accès au bureau XFCE via navigateur, sur le téléphone ou LAN.
 # ============================================================
 
 set -o pipefail
@@ -126,7 +126,7 @@ unset vncpass vncpass2
 afficher_succes "Mot de passe VNC configuré."
 
 # ---------- Commandes de gestion noVNC ----------
-afficher_etape "Création des commandes novnc-start/stop/status/log..."
+afficher_etape "Création des commandes noVNC..."
 
 cat > "$PREFIX/bin/novnc-start" <<'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
@@ -134,6 +134,8 @@ NOVNC_DIR="$HOME/noVNC"
 VNC_DISPLAY=':1'
 VNC_PORT=5901
 WEB_PORT="${NOVNC_PORT:-6080}"
+PID_FILE="$HOME/.vnc/novnc.pid"
+export PATH="$HOME/.local/bin:$PATH"
 
 if [ ! -x "$NOVNC_DIR/utils/novnc_proxy" ]; then
     echo "Erreur : noVNC est introuvable dans $NOVNC_DIR."
@@ -151,28 +153,50 @@ if ! vncserver -list 2>/dev/null | grep -q "$VNC_DISPLAY"; then
     fi
 fi
 
-if pgrep -f '[n]ovnc_proxy.*--listen' >/dev/null 2>&1 || pgrep -f '[w]ebsockify.*6080' >/dev/null 2>&1; then
-    echo "noVNC semble déjà actif. Ouvrez http://127.0.0.1:${WEB_PORT}/vnc.html"
+if [ -f "$PID_FILE" ] && kill -0 "$(cat "$PID_FILE")" 2>/dev/null; then
+    echo "noVNC semble déjà actif sur le port ${WEB_PORT}."
+    echo "Ouvrez http://127.0.0.1:${WEB_PORT}/vnc.html ou utilisez l'adresse IP du téléphone."
     exit 0
 fi
+rm -f "$PID_FILE"
 
-nohup "$NOVNC_DIR/utils/novnc_proxy" --vnc "localhost:${VNC_PORT}" --listen "127.0.0.1:${WEB_PORT}" > "$HOME/.vnc/novnc.log" 2>&1 </dev/null &
+# Le VNC lui-même reste limité à localhost; seul le proxy web écoute sur le LAN.
+nohup "$NOVNC_DIR/utils/novnc_proxy" --vnc "localhost:${VNC_PORT}" --listen "0.0.0.0:${WEB_PORT}" > "$HOME/.vnc/novnc.log" 2>&1 </dev/null &
+NOVNC_PID=$!
+echo "$NOVNC_PID" > "$PID_FILE"
 sleep 2
-if ! kill -0 "$!" 2>/dev/null; then
+if ! kill -0 "$NOVNC_PID" 2>/dev/null; then
+    rm -f "$PID_FILE"
     echo "Erreur : noVNC n'a pas démarré. Consultez novnc-log."
     exit 1
 fi
 
-echo "noVNC est démarré. Ouvrez : http://127.0.0.1:${WEB_PORT}/vnc.html"
+LAN_IP=""
+if command -v ip >/dev/null 2>&1; then
+    LAN_IP="$(ip -o -4 addr show scope global 2>/dev/null | awk '{split($4,a,"/"); if (a[1] !~ /^127\./) {print a[1]; exit}}')"
+fi
+
+echo "noVNC est démarré sur le port ${WEB_PORT}."
+echo "Sur ce téléphone : http://127.0.0.1:${WEB_PORT}/vnc.html"
+if [ -n "$LAN_IP" ]; then
+    echo "Sur le réseau local : http://${LAN_IP}:${WEB_PORT}/vnc.html"
+else
+    echo "Sur un autre appareil du même Wi-Fi : http://IP_DU_TELEPHONE:${WEB_PORT}/vnc.html"
+    echo "Pour trouver l'adresse IP, utilisez : ip -o -4 addr show scope global"
+fi
 echo "Mot de passe : celui défini pendant l'installation."
 EOF
 chmod +x "$PREFIX/bin/novnc-start"
 
 cat > "$PREFIX/bin/novnc-stop" <<'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
-NOVNC_PIDS="$(pgrep -f '[n]ovnc_proxy.*--listen' 2>/dev/null || true)"
-if [ -n "$NOVNC_PIDS" ]; then
-    kill $NOVNC_PIDS 2>/dev/null || true
+PID_FILE="$HOME/.vnc/novnc.pid"
+if [ -f "$PID_FILE" ]; then
+    NOVNC_PID="$(cat "$PID_FILE")"
+    if [[ "$NOVNC_PID" =~ ^[0-9]+$ ]] && kill -0 "$NOVNC_PID" 2>/dev/null; then
+        kill "$NOVNC_PID" 2>/dev/null || true
+    fi
+    rm -f "$PID_FILE"
 fi
 vncserver -kill :1 2>/dev/null || true
 rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null || true
@@ -182,13 +206,15 @@ chmod +x "$PREFIX/bin/novnc-stop"
 
 cat > "$PREFIX/bin/novnc-status" <<'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
+WEB_PORT="${NOVNC_PORT:-6080}"
 if vncserver -list 2>/dev/null | grep -q ':1'; then
-    echo "TigerVNC actif sur le port 5901."
+    echo "TigerVNC actif sur le port 5901 (écoute locale uniquement)."
 else
     echo "TigerVNC arrêté."
 fi
-if pgrep -f '[n]ovnc_proxy.*--listen' >/dev/null 2>&1 || pgrep -f '[w]ebsockify.*6080' >/dev/null 2>&1; then
-    echo "noVNC actif : http://127.0.0.1:${NOVNC_PORT:-6080}/vnc.html"
+if [ -f "$HOME/.vnc/novnc.pid" ] && kill -0 "$(cat "$HOME/.vnc/novnc.pid")" 2>/dev/null; then
+    echo "noVNC actif : http://127.0.0.1:${WEB_PORT}/vnc.html"
+    echo "Sur le réseau local : http://IP_DU_TELEPHONE:${WEB_PORT}/vnc.html"
 else
     echo "noVNC arrêté."
 fi
@@ -205,13 +231,33 @@ fi
 EOF
 chmod +x "$PREFIX/bin/novnc-log"
 
-afficher_succes "Installation terminée. Commandes : novnc-start, novnc-stop, novnc-status, novnc-log."
+# Noms courts demandés : commandes exécutables et alias Bash idempotents.
+ln -sf novnc-start "$PREFIX/bin/start-novnc"
+ln -sf novnc-stop "$PREFIX/bin/stop-novnc"
+ln -sf novnc-status "$PREFIX/bin/status-novnc"
+ln -sf novnc-log "$PREFIX/bin/log-novnc"
+
+BASHRC="$HOME/.bashrc"
+ALIAS_BEGIN="# >>> termux-xfce-install noVNC aliases >>>"
+ALIAS_END="# <<< termux-xfce-install noVNC aliases <<<"
+if [ -f "$BASHRC" ]; then
+    sed -i "/$ALIAS_BEGIN/,/$ALIAS_END/d" "$BASHRC"
+fi
+cat >> "$BASHRC" <<'EOF'
+# >>> termux-xfce-install noVNC aliases >>>
+alias start-novnc='novnc-start'
+alias stop-novnc='novnc-stop'
+alias status-novnc='novnc-status'
+alias log-novnc='novnc-log'
+# <<< termux-xfce-install noVNC aliases <<<
+EOF
+
+afficher_succes "Installation terminée. Commandes : start-novnc/novnc-start, stop-novnc/novnc-stop, status-novnc/novnc-status, log-novnc/novnc-log."
 echo ""
-echo "Par défaut, noVNC écoute uniquement sur ce téléphone (127.0.0.1:6080)."
-echo "Pour démarrer : novnc-start"
-echo "Puis ouvrez : http://127.0.0.1:6080/vnc.html"
+echo "Démarrer : start-novnc"
+echo "Ouvrir sur le téléphone : http://127.0.0.1:6080/vnc.html"
+echo "Depuis un appareil du même réseau Wi-Fi : http://IP_DU_TELEPHONE:6080/vnc.html"
+echo "Arrêter : stop-novnc"
 echo ""
-echo "Pour arrêter : novnc-stop"
-echo "Pour consulter les logs : novnc-log"
-echo ""
-afficher_avert "L'accès réseau depuis un autre appareil n'est pas activé par défaut. Ne l'activez que sur un réseau de confiance : le trafic HTTP/VNC n'est pas chiffré."
+afficher_avert "Sécurité : l'interface écoute sur le réseau local et utilise HTTP non chiffré. Utilisez uniquement un réseau Wi-Fi de confiance, gardez le mot de passe VNC, et ne redirigez pas le port 6080 vers Internet."
+echo "Rechargez les alias Bash avec : source ~/.bashrc"
