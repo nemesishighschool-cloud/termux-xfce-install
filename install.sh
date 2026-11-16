@@ -3,10 +3,11 @@
 # ============================================
 # Script d'installation Bureau XFCE + VNC
 # pour Termux (sans proot-distro)
-# Version corrigée et structurée
+# Version corrigée, robuste et idempotente
 # ============================================
 
 set -o pipefail
+set -u
 
 # ---------- Couleurs ----------
 ROUGE='\033[0;31m'
@@ -15,6 +16,11 @@ JAUNE='\033[0;33m'
 BLEU='\033[0;34m'
 NEUTRE='\033[0m'
 
+# ---------- Variables ----------
+VNC_DISPLAY=':1'
+VNC_GEOMETRY='1280x720'
+VNC_DEPTH='24'
+
 # ---------- Fonctions d'affichage ----------
 afficher_etape()  { echo -e "${BLEU}[*]${NEUTRE} $1"; }
 afficher_succes() { echo -e "${VERT}[✓]${NEUTRE} $1"; }
@@ -22,8 +28,14 @@ afficher_erreur() { echo -e "${ROUGE}[✗]${NEUTRE} $1"; }
 afficher_avert()  { echo -e "${JAUNE}[!]${NEUTRE} $1"; }
 
 # ---------- Vérification Termux ----------
-if [ -z "$PREFIX" ] || [ ! -d "$PREFIX" ]; then
+if [ -z "${PREFIX:-}" ] || [ ! -d "${PREFIX:-}" ]; then
     afficher_erreur "Ce script doit être exécuté dans Termux."
+    exit 1
+fi
+
+# ---------- Validation du binaire VNC ----------
+if ! command -v vncserver >/dev/null 2>&1; then
+    afficher_erreur "Le paquet TigerVNC n'est pas installé encore. Relancez le script depuis le début."
     exit 1
 fi
 
@@ -51,11 +63,11 @@ afficher_succes "XFCE et TigerVNC installés"
 afficher_etape "Création du dossier de configuration VNC..."
 mkdir -p "$HOME/.vnc"
 
-cat > "$HOME/.vnc/xstartup" << 'EOF'
+cat > "$HOME/.vnc/xstartup" <<'EOF'
 #!/bin/sh
 unset SESSION_MANAGER
 unset DBUS_SESSION_BUS_ADDRESS
-exec startxfce4
+exec dbus-launch --exit-with-session startxfce4
 EOF
 chmod +x "$HOME/.vnc/xstartup"
 afficher_succes "Fichier xstartup créé"
@@ -91,39 +103,52 @@ afficher_succes "Mot de passe VNC configuré"
 afficher_etape "Création des commandes VNC..."
 
 # vncstart
-cat > "$PREFIX/bin/vncstart" << 'EOF'
+cat > "$PREFIX/bin/vncstart" <<'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
-vncserver :1 -geometry 1280x720 -depth 24 -localhost no
+VNC_DISPLAY=':1'
+if vncserver -list 2>/dev/null | grep -q "$VNC_DISPLAY"; then
+    echo "Le serveur VNC est déjà actif sur $VNC_DISPLAY."
+    exit 0
+fi
+vncserver "$VNC_DISPLAY" -geometry 1280x720 -depth 24 -localhost no
 EOF
 chmod +x "$PREFIX/bin/vncstart"
 
 # vncstop
-cat > "$PREFIX/bin/vncstop" << 'EOF'
+cat > "$PREFIX/bin/vncstop" <<'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
 vncserver -kill :1 2>/dev/null || true
+rm -rf /tmp/.X1* 2>/dev/null || true
+rm -rf /tmp/.X11-unix/X1 2>/dev/null || true
+pkill -f Xvnc 2>/dev/null || true
 EOF
 chmod +x "$PREFIX/bin/vncstop"
 
 # vncrestart
-cat > "$PREFIX/bin/vncrestart" << 'EOF'
+cat > "$PREFIX/bin/vncrestart" <<'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
 vncserver -kill :1 2>/dev/null || true
-rm -rf /tmp/.X1* 2>/dev/null
+rm -rf /tmp/.X1* 2>/dev/null || true
+rm -rf /tmp/.X11-unix/X1 2>/dev/null || true
 vncserver :1 -geometry 1280x720 -depth 24 -localhost no
 EOF
 chmod +x "$PREFIX/bin/vncrestart"
 
 # vncstatus
-cat > "$PREFIX/bin/vncstatus" << 'EOF'
+cat > "$PREFIX/bin/vncstatus" <<'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
-ps aux | grep -E "Xvnc|vncserver" | grep -v grep
+vncserver -list 2>/dev/null || echo "Aucun serveur VNC actif."
 EOF
 chmod +x "$PREFIX/bin/vncstatus"
 
 # vnclog
-cat > "$PREFIX/bin/vnclog" << 'EOF'
+cat > "$PREFIX/bin/vnclog" <<'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
-tail -f "$HOME/.vnc/"*.log 2>/dev/null || echo "Aucun log VNC trouvé."
+if ls "$HOME/.vnc"/*.log >/dev/null 2>&1; then
+    tail -f "$HOME"/.vnc/*.log
+else
+    echo "Aucun log VNC trouvé."
+fi
 EOF
 chmod +x "$PREFIX/bin/vnclog"
 
@@ -158,17 +183,19 @@ echo "🚀 Pour démarrer VNC maintenant, tapez : vncstart"
 echo ""
 
 # ---------- Démarrage immédiat ----------
-read -r -p "Voulez-vous démarrer VNC maintenant ? (o/N) " -n 1 reply
-echo
-if [[ $reply =~ ^[OoYy]$ ]]; then
-    echo ""
-    afficher_etape "Démarrage de VNC..."
-    vncstart
-    if [ $? -eq 0 ]; then
-        afficher_succes "VNC démarré sur le port 5901"
-        echo "📱 Connectez-vous avec AVNC à l'adresse : 127.0.0.1:5901"
-    else
-        afficher_erreur "Erreur au démarrage. Tapez 'vncstart' manuellement plus tard."
+if [ -t 0 ]; then
+    read -r -p "Voulez-vous démarrer VNC maintenant ? (o/N) " -n 1 reply
+    echo
+    if [[ $reply =~ ^[OoYy]$ ]]; then
+        echo ""
+        afficher_etape "Démarrage de VNC..."
+        vncstart
+        if [ $? -eq 0 ]; then
+            afficher_succes "VNC démarré sur le port 5901"
+            echo "📱 Connectez-vous avec AVNC à l'adresse : 127.0.0.1:5901"
+        else
+            afficher_erreur "Erreur au démarrage. Tapez 'vncstart' manuellement plus tard."
+        fi
     fi
 fi
 
