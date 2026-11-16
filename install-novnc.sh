@@ -1,116 +1,105 @@
 #!/data/data/com.termux/files/usr/bin/bash
 
 # ============================================================
-# Script d'installation Bureau XFCE + noVNC (via websockify)
-# pour Termux - Version complète et robuste
+# Installation XFCE + TigerVNC + noVNC pour Termux
+# Accès au bureau XFCE depuis un navigateur web.
 # ============================================================
 
 set -o pipefail
-set -u
 
-# ---------- Couleurs ----------
+# ---------- Couleurs et fonctions ----------
 ROUGE='\033[0;31m'
 VERT='\033[0;32m'
 JAUNE='\033[0;33m'
 BLEU='\033[0;34m'
 NEUTRE='\033[0m'
 
-# ---------- Fonctions d'affichage ----------
 afficher_etape()  { echo -e "${BLEU}[*]${NEUTRE} $1"; }
 afficher_succes() { echo -e "${VERT}[✓]${NEUTRE} $1"; }
 afficher_erreur() { echo -e "${ROUGE}[✗]${NEUTRE} $1"; }
 afficher_avert()  { echo -e "${JAUNE}[!]${NEUTRE} $1"; }
 
-# ---------- Vérification de l'environnement Termux ----------
-if [ -z "${PREFIX:-}" ] || [ ! -d "${PREFIX:-}" ]; then
+# ---------- Vérification Termux ----------
+if [ -z "${PREFIX:-}" ] || [ ! -d "$PREFIX" ]; then
     afficher_erreur "Ce script doit être exécuté dans Termux."
     exit 1
 fi
 
-# ---------- Vérification de la connectivité Internet ----------
-afficher_etape "Vérification de la connexion Internet..."
-if ! ping -c 1 -W 2 8.8.8.8 >/dev/null 2>&1; then
-    afficher_avert "Aucune connexion Internet détectée. Certaines étapes pourraient échouer."
-    read -r -p "Continuer quand même ? (o/N) " reply
-    if [[ ! "$reply" =~ ^[OoYy]$ ]]; then
-        afficher_erreur "Abandon."
-        exit 1
-    fi
-else
-    afficher_succes "Connexion Internet active."
+if [ ! -t 0 ]; then
+    afficher_erreur "Ce script a besoin d'un terminal interactif. Téléchargez-le puis lancez-le avec bash."
+    exit 1
 fi
 
-echo ""
 echo "=========================================="
-echo "  Installation Bureau XFCE + noVNC"
+echo "  Installation XFCE + noVNC pour Termux"
 echo "=========================================="
 echo ""
 
-# ---------- 1. Mise à jour de Termux ----------
+# ---------- Mise à jour et paquets ----------
 afficher_etape "Mise à jour de Termux..."
-if ! pkg update -y && pkg upgrade -y; then
+if ! pkg update -y || ! pkg upgrade -y; then
     afficher_erreur "Échec de la mise à jour de Termux."
     exit 1
 fi
-afficher_succes "Mise à jour terminée."
 
-# ---------- 2. Ajout du dépôt X11 ----------
 afficher_etape "Ajout du dépôt X11..."
 if ! pkg install x11-repo -y; then
     afficher_erreur "Échec de l'ajout du dépôt X11."
     exit 1
 fi
-afficher_succes "Dépôt X11 ajouté."
 
-# ---------- 3. Installation des paquets nécessaires ----------
-afficher_etape "Installation de XFCE, TigerVNC, Python et Git (cela peut prendre du temps)..."
+afficher_etape "Installation de XFCE, TigerVNC, Python et Git..."
 if ! pkg install xfce4 tigervnc python git -y; then
     afficher_erreur "Échec de l'installation des paquets."
     exit 1
 fi
-afficher_succes "Paquets installés."
 
-# ---------- 4. Installation de websockify via pip ----------
-afficher_etape "Installation de websockify via pip..."
-if ! pip install websockify; then
-    afficher_avert "Échec de l'installation via pip. Tentative via pkg..."
-    if ! pkg install python-websockify -y; then
+# websockify est fourni par le dépôt Termux lorsqu'il est disponible.
+afficher_etape "Installation de websockify..."
+if ! pkg install python-websockify -y; then
+    afficher_avert "Le paquet Termux python-websockify n'est pas disponible. Tentative avec pip..."
+    if ! pip install --user websockify; then
         afficher_erreur "Impossible d'installer websockify."
         exit 1
     fi
 fi
-afficher_succes "websockify installé."
 
-# ---------- 5. Clonage de noVNC ----------
-afficher_etape "Clonage du dépôt noVNC..."
+# ---------- Installation/mise à jour noVNC ----------
 NOVNC_DIR="$HOME/noVNC"
-if [ -d "$NOVNC_DIR" ]; then
-    afficher_avert "Le dossier $NOVNC_DIR existe déjà. Suppression..."
-    rm -rf "$NOVNC_DIR"
-fi
-if ! git clone https://github.com/novnc/noVNC.git "$NOVNC_DIR"; then
-    afficher_erreur "Échec du clonage de noVNC."
+afficher_etape "Installation de noVNC dans $NOVNC_DIR..."
+if [ -d "$NOVNC_DIR/.git" ]; then
+    if ! git -C "$NOVNC_DIR" pull --ff-only; then
+        afficher_erreur "Impossible de mettre à jour le dépôt noVNC existant."
+        exit 1
+    fi
+elif [ -e "$NOVNC_DIR" ]; then
+    afficher_erreur "$NOVNC_DIR existe déjà mais n'est pas un dépôt Git. Déplacez-le ou supprimez-le, puis relancez le script."
+    exit 1
+elif ! git clone --depth 1 https://github.com/novnc/noVNC.git "$NOVNC_DIR"; then
+    afficher_erreur "Échec du téléchargement de noVNC."
     exit 1
 fi
-afficher_succes "noVNC cloné dans $NOVNC_DIR."
 
-# ---------- 6. Configuration du dossier .vnc et xstartup ----------
-afficher_etape "Configuration de VNC..."
-mkdir -p "$HOME/.vnc"
+if [ ! -x "$NOVNC_DIR/utils/novnc_proxy" ]; then
+    afficher_erreur "Le lanceur utils/novnc_proxy de noVNC est introuvable."
+    exit 1
+fi
 
-cat > "$HOME/.vnc/xstartup" << 'EOF'
-#!/bin/sh
+# ---------- Configuration XFCE/VNC ----------
+afficher_etape "Configuration de TigerVNC et XFCE..."
+mkdir -p "$HOME/.vnc" || { afficher_erreur "Impossible de créer ~/.vnc."; exit 1; }
+
+cat > "$HOME/.vnc/xstartup" <<'EOF'
+#!/data/data/com.termux/files/usr/bin/bash
 unset SESSION_MANAGER
 unset DBUS_SESSION_BUS_ADDRESS
-exec startxfce4
+exec dbus-launch --exit-with-session startxfce4
 EOF
 chmod +x "$HOME/.vnc/xstartup"
-afficher_succes "Fichier xstartup créé."
 
-# ---------- 7. Mot de passe VNC (validation) ----------
+# ---------- Mot de passe VNC ----------
 afficher_etape "Configuration du mot de passe VNC..."
-echo -e "${JAUNE}Le mot de passe doit contenir entre 6 et 8 caractères.${NEUTRE}"
-
+echo -e "${JAUNE}Choisissez un mot de passe de 6 à 8 caractères.${NEUTRE}"
 while true; do
     read -r -s -p "Mot de passe VNC : " vncpass
     echo
@@ -121,136 +110,108 @@ while true; do
         afficher_erreur "Les mots de passe ne correspondent pas."
         continue
     fi
-
-    if [ ${#vncpass} -lt 6 ] || [ ${#vncpass} -gt 8 ]; then
+    if [ "${#vncpass}" -lt 6 ] || [ "${#vncpass}" -gt 8 ]; then
         afficher_erreur "Le mot de passe doit contenir entre 6 et 8 caractères."
         continue
     fi
-
     break
 done
 
-printf '%s\n' "$vncpass" | vncpasswd -f > "$HOME/.vnc/passwd"
-chmod 600 "$HOME/.vnc/passwd"
-afficher_succes "Mot de passe VNC configuré."
-
-# ---------- 8. Création des commandes de gestion ----------
-afficher_etape "Création des commandes de gestion..."
-
-# vncstart
-cat > "$PREFIX/bin/vncstart" << 'EOF'
-#!/data/data/com.termux/files/usr/bin/bash
-vncserver :1 -geometry 1280x720 -depth 24 -localhost no
-EOF
-chmod +x "$PREFIX/bin/vncstart"
-
-# vncstop
-cat > "$PREFIX/bin/vncstop" << 'EOF'
-#!/data/data/com.termux/files/usr/bin/bash
-vncserver -kill :1 2>/dev/null || true
-pkill -f websockify 2>/dev/null || true
-EOF
-chmod +x "$PREFIX/bin/vncstop"
-
-# vncstatus
-cat > "$PREFIX/bin/vncstatus" << 'EOF'
-#!/data/data/com.termux/files/usr/bin/bash
-ps aux | grep -E "Xvnc|vncserver|websockify" | grep -v grep
-EOF
-chmod +x "$PREFIX/bin/vncstatus"
-
-# vnclog
-cat > "$PREFIX/bin/vnclog" << 'EOF'
-#!/data/data/com.termux/files/usr/bin/bash
-tail -f "$HOME/.vnc/"*.log 2>/dev/null || echo "Aucun log VNC trouvé."
-EOF
-chmod +x "$PREFIX/bin/vnclog"
-
-afficher_succes "Commandes créées : vncstart, vncstop, vncstatus, vnclog."
-
-# ---------- 9. Création des commandes noVNC ----------
-afficher_etape "Création des commandes noVNC..."
-
-# novnc-start
-cat > "$PREFIX/bin/novnc-start" << 'EOF'
-#!/data/data/com.termux/files/usr/bin/bash
-NOVNC_DIR="$HOME/noVNC"
-if [ ! -d "$NOVNC_DIR" ]; then
-    echo "Erreur : le dossier noVNC est introuvable."
+if ! printf '%s\n' "$vncpass" | vncpasswd -f > "$HOME/.vnc/passwd"; then
+    afficher_erreur "Impossible d'enregistrer le mot de passe VNC."
     exit 1
 fi
-vncserver :1 -geometry 1280x720 -depth 24 -localhost no
-sleep 2
-cd "$NOVNC_DIR" || exit 1
-nohup ./utils/novnc_proxy --vnc localhost:5901 --listen 6080 > "$HOME/.vnc/novnc.log" 2>&1 &
-echo "noVNC démarré. Accès : http://127.0.0.1:6080/vnc.html"
-EOF
-chmod +x "$PREFIX/bin/novnc-start"
+chmod 600 "$HOME/.vnc/passwd"
+unset vncpass vncpass2
+afficher_succes "Mot de passe VNC configuré."
 
-# novnc-stop
-cat > "$PREFIX/bin/novnc-stop" << 'EOF'
+# ---------- Commandes de gestion noVNC ----------
+afficher_etape "Création des commandes novnc-start/stop/status/log..."
+
+cat > "$PREFIX/bin/novnc-start" <<'EOF'
 #!/data/data/com.termux/files/usr/bin/bash
-pkill -f websockify 2>/dev/null || true
-vncserver -kill :1 2>/dev/null || true
-rm -rf /tmp/.X1* 2>/dev/null || true
-echo "noVNC arrêté."
-EOF
-chmod +x "$PREFIX/bin/novnc-stop"
+NOVNC_DIR="$HOME/noVNC"
+VNC_DISPLAY=':1'
+VNC_PORT=5901
+WEB_PORT="${NOVNC_PORT:-6080}"
 
-# novnc-status
-cat > "$PREFIX/bin/novnc-status" << 'EOF'
-#!/data/data/com.termux/files/usr/bin/bash
-ps aux | grep -E "Xvnc|vncserver|websockify" | grep -v grep
-EOF
-chmod +x "$PREFIX/bin/novnc-status"
+if [ ! -x "$NOVNC_DIR/utils/novnc_proxy" ]; then
+    echo "Erreur : noVNC est introuvable dans $NOVNC_DIR."
+    exit 1
+fi
+if ! command -v websockify >/dev/null 2>&1; then
+    echo "Erreur : websockify n'est pas installé ou absent du PATH."
+    exit 1
+fi
 
-# novnc-log
-cat > "$PREFIX/bin/novnc-log" << 'EOF'
-#!/data/data/com.termux/files/usr/bin/bash
-tail -f "$HOME/.vnc/novnc.log" 2>/dev/null || echo "Aucun log noVNC trouvé."
-EOF
-chmod +x "$PREFIX/bin/novnc-log"
-
-afficher_succes "Commandes noVNC créées : novnc-start, novnc-stop, novnc-status, novnc-log."
-
-# ---------- Résumé ----------
-echo ""
-echo "=========================================="
-echo -e "${VERT}Installation terminée avec succès !${NEUTRE}"
-echo "=========================================="
-echo ""
-echo "📋 Commandes disponibles :"
-echo "   vncstart       : Démarrer VNC (client classique)"
-echo "   vncstop        : Arrêter VNC"
-echo "   vncstatus      : Vérifier si VNC tourne"
-echo "   vnclog         : Voir les logs VNC"
-echo ""
-echo "   novnc-start    : Démarrer VNC + noVNC (accès navigateur)"
-echo "   novnc-stop     : Arrêter VNC + noVNC"
-echo "   novnc-status   : Vérifier si noVNC tourne"
-echo "   novnc-log      : Voir les logs noVNC"
-echo ""
-echo "🌐 Accès navigateur :"
-echo "   http://127.0.0.1:6080/vnc.html"
-echo "   (ou http://IP_DE_TON_TELEPHONE:6080/vnc.html depuis un autre appareil)"
-echo ""
-echo "🚀 Pour démarrer noVNC maintenant, tapez : novnc-start"
-echo ""
-
-# ---------- Démarrage immédiat (optionnel) ----------
-read -r -p "Voulez-vous démarrer noVNC maintenant ? (o/N) " -n 1 reply
-echo
-if [[ "$reply" =~ ^[OoYy]$ ]]; then
-    echo ""
-    afficher_etape "Démarrage de noVNC..."
-    novnc-start
-    if [ $? -eq 0 ]; then
-        afficher_succes "noVNC démarré sur le port 6080."
-        echo "🌐 Ouvrez : http://127.0.0.1:6080/vnc.html"
-    else
-        afficher_erreur "Erreur au démarrage. Tapez 'novnc-start' manuellement plus tard."
+if ! vncserver -list 2>/dev/null | grep -q "$VNC_DISPLAY"; then
+    if ! vncserver "$VNC_DISPLAY" -geometry "${VNC_GEOMETRY:-1280x720}" -depth 24 -localhost yes; then
+        echo "Erreur : impossible de démarrer TigerVNC. Consultez ~/.vnc/*.log."
+        exit 1
     fi
 fi
 
+if pgrep -f '[n]ovnc_proxy.*--listen' >/dev/null 2>&1 || pgrep -f '[w]ebsockify.*6080' >/dev/null 2>&1; then
+    echo "noVNC semble déjà actif. Ouvrez http://127.0.0.1:${WEB_PORT}/vnc.html"
+    exit 0
+fi
+
+nohup "$NOVNC_DIR/utils/novnc_proxy" --vnc "localhost:${VNC_PORT}" --listen "127.0.0.1:${WEB_PORT}" > "$HOME/.vnc/novnc.log" 2>&1 </dev/null &
+sleep 2
+if ! kill -0 "$!" 2>/dev/null; then
+    echo "Erreur : noVNC n'a pas démarré. Consultez novnc-log."
+    exit 1
+fi
+
+echo "noVNC est démarré. Ouvrez : http://127.0.0.1:${WEB_PORT}/vnc.html"
+echo "Mot de passe : celui défini pendant l'installation."
+EOF
+chmod +x "$PREFIX/bin/novnc-start"
+
+cat > "$PREFIX/bin/novnc-stop" <<'EOF'
+#!/data/data/com.termux/files/usr/bin/bash
+NOVNC_PIDS="$(pgrep -f '[n]ovnc_proxy.*--listen' 2>/dev/null || true)"
+if [ -n "$NOVNC_PIDS" ]; then
+    kill $NOVNC_PIDS 2>/dev/null || true
+fi
+vncserver -kill :1 2>/dev/null || true
+rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null || true
+echo "noVNC et le serveur VNC sont arrêtés."
+EOF
+chmod +x "$PREFIX/bin/novnc-stop"
+
+cat > "$PREFIX/bin/novnc-status" <<'EOF'
+#!/data/data/com.termux/files/usr/bin/bash
+if vncserver -list 2>/dev/null | grep -q ':1'; then
+    echo "TigerVNC actif sur le port 5901."
+else
+    echo "TigerVNC arrêté."
+fi
+if pgrep -f '[n]ovnc_proxy.*--listen' >/dev/null 2>&1 || pgrep -f '[w]ebsockify.*6080' >/dev/null 2>&1; then
+    echo "noVNC actif : http://127.0.0.1:${NOVNC_PORT:-6080}/vnc.html"
+else
+    echo "noVNC arrêté."
+fi
+EOF
+chmod +x "$PREFIX/bin/novnc-status"
+
+cat > "$PREFIX/bin/novnc-log" <<'EOF'
+#!/data/data/com.termux/files/usr/bin/bash
+if [ -f "$HOME/.vnc/novnc.log" ]; then
+    tail -f "$HOME/.vnc/novnc.log"
+else
+    echo "Aucun log noVNC trouvé."
+fi
+EOF
+chmod +x "$PREFIX/bin/novnc-log"
+
+afficher_succes "Installation terminée. Commandes : novnc-start, novnc-stop, novnc-status, novnc-log."
 echo ""
-echo -e "${VERT}Bon bureau ! 🎉${NEUTRE}"
+echo "Par défaut, noVNC écoute uniquement sur ce téléphone (127.0.0.1:6080)."
+echo "Pour démarrer : novnc-start"
+echo "Puis ouvrez : http://127.0.0.1:6080/vnc.html"
+echo ""
+echo "Pour arrêter : novnc-stop"
+echo "Pour consulter les logs : novnc-log"
+echo ""
+afficher_avert "L'accès réseau depuis un autre appareil n'est pas activé par défaut. Ne l'activez que sur un réseau de confiance : le trafic HTTP/VNC n'est pas chiffré."

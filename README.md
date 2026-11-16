@@ -1,153 +1,110 @@
-
 # termux-xfce-install
 
-> Installation automatique d'un bureau XFCE et d'un serveur VNC (TigerVNC) dans Termux, sans proot-distro.
+> Installation d'un bureau XFCE dans Termux avec TigerVNC, avec au choix un client VNC classique ou une interface noVNC accessible dans un navigateur.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-## 📖 Description
+## Description
 
-Ce projet permet d'installer rapidement un environnement de bureau graphique **XFCE** dans **Termux** (Android), accessible via **VNC**. Il ne nécessite ni root, ni proot-distro, ni aucune autre surcouche.
+Ce projet installe un environnement de bureau graphique **XFCE** dans **Termux** (Android), sans root ni `proot-distro`. Deux scripts sont proposés :
 
-Le script `install.sh` gère automatiquement :
-- La mise à jour de Termux
-- L'ajout du dépôt X11
-- L'installation de XFCE et TigerVNC
-- La création du fichier `~/.vnc/xstartup`
-- La configuration sécurisée du mot de passe VNC (6 à 8 caractères)
-- La création de commandes pratiques : `vncstart`, `vncstop`, `vncrestart`, `vncstatus`, `vnclog`
-- Le nettoyage des anciens alias dans `~/.bashrc`
+- `install.sh` : XFCE et TigerVNC, pour se connecter avec une application cliente VNC.
+- `install-novnc.sh` : XFCE, TigerVNC et noVNC, pour utiliser le bureau depuis le navigateur web du téléphone.
 
-## ⚙️ Prérequis
+Les deux scripts configurent le mot de passe VNC et les commandes de démarrage et d'arrêt correspondantes.
 
-- **Termux** installé depuis [F-Droid](https://f-droid.org/packages/com.termux/) (la version du Play Store est obsolète).
-- **Android 7.0** ou version ultérieure.
-- Une connexion Internet active.
-- Un client VNC sur le même appareil ou sur un autre appareil du réseau (nous recommandons **AVNC** sur Android, ou **TigerVNC** / **RealVNC** sur PC).
+## Prérequis
 
-## 🚀 Installation
+- **Termux** installé depuis [F-Droid](https://f-droid.org/packages/com.termux/) ou une source officielle maintenue. Évitez les versions obsolètes du Play Store.
+- Android 7.0 ou version ultérieure.
+- Une connexion Internet.
 
-### Méthode rapide (curl)
+## Installation
 
-Ouvre Termux et exécute la commande suivante :
+Ouvre Termux et choisis **une** des méthodes ci-dessous.
+
+### XFCE avec une application VNC (TigerVNC)
+
+Télécharge puis exécute le script :
 
 ```bash
-curl -sL https://raw.githubusercontent.com/nemesishighschool-cloud/termux-xfce-install/main/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/nemesishighschool-cloud/termux-xfce-install/main/install.sh -o install.sh && bash install.sh
 ```
 
-> **Note** : Si tu préfères vérifier le script avant de l'exécuter, télécharge-le d'abord :
-> ```bash
-> curl -sL https://raw.githubusercontent.com/nemesishighschool-cloud/termux-xfce-install/main/install.sh -o install.sh
-> less install.sh   # pour lire le contenu
-> bash install.sh
-> ```
+### XFCE accessible depuis un navigateur (noVNC)
 
-### Méthode par clonage Git
+Télécharge puis exécute le second script :
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/nemesishighschool-cloud/termux-xfce-install/main/install-novnc.sh -o install-novnc.sh && bash install-novnc.sh
+```
+
+Le téléchargement dans un fichier avant l'exécution permet au script d'utiliser le terminal pour demander le mot de passe VNC.
+
+### Installation par clonage Git
 
 ```bash
 pkg install git -y
 git clone https://github.com/nemesishighschool-cloud/termux-xfce-install.git
 cd termux-xfce-install
 bash install.sh
+# Ou, pour l'accès navigateur :
+bash install-novnc.sh
 ```
 
-## 🖥️ Utilisation
+## Utilisation de noVNC
 
-Une fois l'installation terminée, tu disposes des commandes suivantes :
-
-| Commande | Description |
-|----------|-------------|
-| `vncstart` | Démarre le serveur VNC sur le port 5901 |
-| `vncstop` | Arrête le serveur VNC |
-| `vncrestart` | Redémarre le serveur VNC |
-| `vncstatus` | Affiche les processus VNC en cours |
-| `vnclog` | Affiche les logs VNC en temps réel |
-
-### Connexion au bureau
-
-1. Lance le serveur VNC :
-   ```bash
-   vncstart
-   ```
-
-2. Ouvre ton client VNC et connecte-toi à :
-   - **Adresse** : `127.0.0.1:5901` (si le client est sur le même appareil)
-   - **Adresse** : `IP_DE_TON_TELEPHONE:5901` (si le client est sur un autre appareil du réseau)
-   - **Mot de passe** : celui que tu as défini lors de l'installation
-
-3. Tu devrais voir apparaître le bureau XFCE.
-
-### Arrêt du serveur
+Après l'installation noVNC :
 
 ```bash
-vncstop
+novnc-start
 ```
 
-## 🔧 Dépannage
+Ouvre ensuite cette adresse dans le navigateur du téléphone :
 
-### Les commandes `vncstart` etc. ne sont pas trouvées
+```text
+http://127.0.0.1:6080/vnc.html
+```
 
-Assure-toi que `$PREFIX/bin` est dans ton `PATH` (c'est normalement le cas par défaut dans Termux). Si besoin, recharge ton shell :
+Saisis le mot de passe VNC défini pendant l'installation. Les commandes disponibles sont :
+
+| Commande | Fonction |
+|----------|----------|
+| `novnc-start` | Démarre TigerVNC et l'interface noVNC |
+| `novnc-stop` | Arrête TigerVNC et noVNC |
+| `novnc-status` | Affiche l'état des services |
+| `novnc-log` | Affiche les logs noVNC en temps réel |
+
+Par sécurité, noVNC écoute par défaut uniquement sur `127.0.0.1` : le bureau est accessible dans le navigateur du téléphone, mais pas depuis d'autres appareils du réseau. L'accès distant nécessite de modifier l'adresse d'écoute et doit être réservé à un réseau de confiance; le trafic HTTP/VNC n'est pas chiffré.
+
+## Utilisation avec un client VNC classique
+
+Avec `install.sh`, démarre le serveur et connecte un client VNC au port 5901 :
 
 ```bash
-source ~/.bashrc
+vncstart
 ```
 
-Ou ferme et rouvre Termux.
+Adresse locale : `127.0.0.1:5901`. Commandes de gestion : `vncstart`, `vncstop`, `vncrestart`, `vncstatus` et `vnclog`.
 
-### Le mot de passe VNC est refusé
+## Dépannage
 
-Le mot de passe doit contenir **entre 6 et 8 caractères**. Si tu l'as oublié, tu peux le redéfinir :
+- Si une commande n'est pas trouvée, ferme puis rouvre Termux, ou recharge ton shell avec `source ~/.bashrc`.
+- Les logs VNC sont dans `~/.vnc/`; utilise `vnclog` ou `novnc-log` selon le script installé.
+- Le mot de passe VNC doit contenir entre 6 et 8 caractères. Pour le changer, lance `vncpasswd`, puis redémarre le serveur.
+- Si le port est déjà utilisé, arrête les services avec `vncstop` ou `novnc-stop`, puis relance-les.
 
-```bash
-vncpasswd
-```
-
-Puis relance `vncstart`.
-
-### Le serveur VNC ne démarre pas
-
-Vérifie les logs :
-
-```bash
-vnclog
-```
-
-Ou consulte le fichier `~/.vnc/*.log`.
-
-### Erreur « Address already in use »
-
-Un serveur VNC tourne peut-être déjà. Arrête-le :
-
-```bash
-vncstop
-```
-
-Puis relance `vncstart`.
-
-### L'écran est noir ou XFCE ne se lance pas
-
-Vérifie que le fichier `~/.vnc/xstartup` contient bien :
-
-```sh
-#!/bin/sh
-unset SESSION_MANAGER
-unset DBUS_SESSION_BUS_ADDRESS
-exec startxfce4
-```
-
-Si ce n'est pas le cas, corrige-le et redémarre VNC.
-
-## 📄 Licence
+## Licence
 
 Ce projet est distribué sous licence MIT. Voir le fichier [LICENSE](LICENSE) pour plus d'informations.
 
-## 🙏 Remerciements
+## Remerciements
 
 - [Termux](https://termux.com/)
 - [XFCE](https://xfce.org/)
 - [TigerVNC](https://tigervnc.org/)
-- [AVNC](https://github.com/gujjwal00/avnc) (client VNC Android recommandé)
+- [noVNC](https://github.com/novnc/noVNC)
+- [AVNC](https://github.com/gujjwal00/avnc), client VNC Android
 
 ---
 
